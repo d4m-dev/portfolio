@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Speed Test — GitHub Pages (1 file)</title>
+<meta name="description" content="Mini speed test: IP, ISP, loại mạng, ping, download, upload.">
+<style>
+  :root{--bg:#0b1020;--card:#121b32;--text:#e6eef7;--muted:#9fb0c7;--acc:#0ea5e9;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--bd:rgba(255,255,255,.06)}
+  *{box-sizing:border-box} body{margin:0;font:16px/1.6 system-ui,Segoe UI,Roboto;background:radial-gradient(900px 500px at 10% -10%,#0ea5e916,transparent),var(--bg);color:var(--text)}
+  .wrap{max-width:1000px;margin:auto;padding:20px}
+  .card{background:linear-gradient(180deg,#0f172a, var(--card));border:1px solid var(--bd);border-radius:14px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+  h1{margin:.2rem 0 1rem;font-size:28px}
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(12,1fr)}
+  .col-4{grid-column:span 4}.col-6{grid-column:span 6}.col-12{grid-column:span 12}
+  @media(max-width:900px){.col-4,.col-6{grid-column:span 12}}
+  .k{color:var(--muted);font-size:13px}.v{font-weight:600}
+  .row{display:flex;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--bd);border-radius:10px;align-items:center}
+  .btn{padding:10px 14px;border-radius:10px;border:1px solid var(--bd);background:linear-gradient(180deg,#0f172a,var(--card));color:var(--text);cursor:pointer}
+  .btn:disabled{opacity:.6;cursor:not-allowed}
+  .pill{padding:4px 10px;border-radius:999px;border:1px solid var(--bd);font-size:12px;color:var(--muted)}
+  .stat{font-size:24px;font-weight:800}
+  .muted{color:var(--muted)} .small{font-size:13px}
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .err{color:var(--err)}
+  .progress{height:10px;background:#0b1020;border:1px solid var(--bd);border-radius:999px;overflow:hidden}
+  .bar{height:100%;width:0%}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>⚡ Speed Test (client-side)</h1>
+    <p class="muted small">Hiển thị IP/ISP, loại mạng, ping, tốc độ download & upload. Không cần backend riêng (demo upload dùng endpoint công khai).</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:.5rem 0 1rem">
+      <button id="btnRun" class="btn">Chạy Speed Test</button>
+      <button id="btnStop" class="btn" disabled>Dừng</button>
+      <span class="pill" id="serverLabel">Server: (auto)</span>
+    </div>
+
+    <div class="grid">
+      <div class="card col-6" style="padding:12px">
+        <div class="row"><span class="k">Thiết bị</span><span class="v" id="device">Đang đọc…</span></div>
+        <div class="row"><span class="k">Hệ điều hành / Trình duyệt</span><span class="v" id="ua">Đang đọc…</span></div>
+        <div class="row"><span class="k">Loại mạng</span><span class="v" id="netType">Đang đọc…</span></div>
+        <div class="row"><span class="k">IP công khai</span><span class="v" id="ip">Đang đọc…</span></div>
+        <div class="row"><span class="k">ISP / Nhà mạng</span><span class="v" id="isp">Đang đọc…</span></div>
+        <div class="row"><span class="k">Vị trí IP (city, country)</span><span class="v" id="geo">Đang đọc…</span></div>
+      </div>
+
+      <div class="card col-6" style="padding:12px">
+        <div class="row"><span class="k">Ping (trước Download)</span><span class="stat" id="pingDown">—</span></div>
+        <div class="progress"><div class="bar" id="barDown"></div></div>
+        <div class="row" style="margin-top:10px"><span class="k">Download</span><span class="stat" id="down">—</span></div>
+
+        <div class="row" style="margin-top:16px"><span class="k">Ping (trước Upload)</span><span class="stat" id="pingUp">—</span></div>
+        <div class="progress"><div class="bar" id="barUp"></div></div>
+        <div class="row" style="margin-top:10px"><span class="k">Upload</span><span class="stat" id="up">—</span></div>
+      </div>
+
+      <div class="col-12">
+        <div class="row"><span class="k">Nhật ký</span><span class="small muted">thời gian thực</span></div>
+        <div id="log" class="small muted" style="margin-top:8px;max-height:220px;overflow:auto;white-space:pre-wrap"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =======================
+   CONFIG SERVER (công khai)
+   ======================= */
+// Download: file lớn, server nhanh (EU). Bạn có thể đổi sang mirror gần VN.
+const DL_URLS = [
+  'https://speed.hetzner.de/100MB.bin',
+  'https://speed.hetzner.de/10MB.bin'
+];
+// Upload demo: endpoint nhận POST và trả JSON (độ chính xác vừa phải).
+const UP_URL = 'https://httpbin.org/post';
+
+// IP/ISP info: không cần token, rate-limit nhẹ
+const IP_API = 'https://ipapi.co/json/';
+
+/* ============ Helpers ============ */
+const $ = (s, el=document)=>el.querySelector(s);
+const logEl = $('#log');
+function log(msg){ const t=new Date().toLocaleTimeString(); logEl.textContent = `[${t}] ${msg}\n` + logEl.textContent; }
+function fmtMbps(bytes, seconds){ return (bytes*8/seconds/1e6).toFixed(2) + ' Mbps'; }
+function setText(id, text){ $(id).textContent = text; }
+function setStat(id, val, cls=''){ const el=$(id); el.textContent=val; el.className='stat '+(cls||'');}
+function setBar(id, pct){ $(id).style.width = Math.max(0, Math.min(100, pct)) + '%'; }
+
+/* ============ Thiết bị & mạng cơ bản ============ */
+(function  deviceInfo(){
+  const ua = navigator.userAgent;
+  const navUA = navigator.userAgentData?.brands?.map(b=>`${b.brand} ${b.version}`).join(', ');
+  const platform = navigator.userAgentData?.platform || navigator.platform || 'Unknown';
+  // Thử suy đoán tên thiết bị
+  let device = 'Thiết bị không xác định';
+  if (/iPhone/i.test(ua)) device = 'iPhone';
+  else if (/iPad/i.test(ua)) device = 'iPad';
+  else if (/Android/i.test(ua)) {
+    const m = ua.match(/Android.*; ([^;)]*) Build/i);
+    device = m ? `Android (${m[1].trim()})` : 'Thiết bị Android';
+  } else if (/Windows/i.test(ua)) device = 'PC Windows';
+  else if (/Mac OS X/i.test(ua)) device = 'Mac';
+  else if (/Linux/i.test(ua)) device = 'Linux';
+
+  setText('#device', device);
+  setText('#ua', navUA ? `${platform} • ${navUA}` : `${platform} • ${ua}`);
+
+  // Network Information API
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (conn){
+    const type = conn.type || 'unknown';
+    const eff = conn.effectiveType || 'unknown';
+    const rtt = conn.rtt ? `${conn.rtt} ms` : 'N/A';
+    const down = conn.downlink ? `${conn.downlink} Mbps (ước lượng)` : 'N/A';
+    setText('#netType', `${type} • ${eff} • RTT≈${rtt} • Down≈${down}`);
+    conn.addEventListener?.('change', ()=>deviceInfo()); // cập nhật nếu mạng đổi
+  } else {
+    setText('#netType', 'Không hỗ trợ (Safari iOS thường hạn chế).');
+  }
+})();
+
+/* ============ Lấy IP & ISP ============ */
+(async function fetchIP(){
+  try{
+    const res = await fetch(IP_API, {cache:'no-store'});
+    const j = await res.json();
+    setText('#ip', j.ip || 'N/A');
+    const org = j.org || j.org_name || '';
+    const isp = org ? org.replace(/^AS\d+\s+/, '') : 'N/A';
+    setText('#isp', isp);
+    setText('#geo', [j.city,j.region?.split(' ')?.[0],j.country_name].filter(Boolean).join(', '));
+  } catch(e){
+    setText('#ip','Lỗi'); setText('#isp','Lỗi'); setText('#geo','—');
+    log('Không lấy được IP/ISP: ' + e.message);
+  }
+})();
+
+/* ============ Ping (HTTP HEAD) ============ */
+async function ping(url, attempts=4){
+  const times=[];
+  for (let i=0;i<attempts;i++){
+    const t0=performance.now();
+    try{
+      // HEAD nhanh + cache buster
+      const u = url + (url.includes('?')?'&':'?') + 'ping=' + Math.random();
+      const r = await fetch(u, { method:'HEAD', cache:'no-store', mode:'cors' });
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      const dt=performance.now()-t0;
+      times.push(dt);
+      log(`Ping #${i+1} ${url}: ${dt.toFixed(1)} ms`);
+    }catch(err){
+      log(`Ping lỗi: ${err.message}`);
+    }
+    await new Promise(r=>setTimeout(r,120));
+  }
+  const good = times.filter(x=>isFinite(x));
+  const med = good.sort((a,b)=>a-b)[Math.floor(good.length/2)];
+  return med ?? NaN;
+}
+
+/* ============ Download test (stream) ============ */
+async function downloadTest(url, readMB=20, barSel='#barDown'){
+  const startAll = performance.now();
+  let received = 0;
+  const ctrl = new AbortController();
+  try{
+    const res = await fetch(url + (url.includes('?')?'&':'?')+'cb='+Math.random(), { cache:'no-store', signal: ctrl.signal, mode:'cors' });
+    if (!res.ok) throw new Error('HTTP '+res.status);
+    const reader = res.body.getReader();
+    const t0 = performance.now();
+    let lastUpdate=t0;
+    while(true){
+      const {done, value} = await reader.read();
+      if (done) break;
+      received += value.length;
+      const now = performance.now();
+      const seconds = (now - t0)/1000;
+      const mb = received/1024/1024;
+      const mbpsNow = (received*8/seconds/1e6);
+      if (now-lastUpdate>250){
+        setBar(barSel, Math.min(100, (mb/readMB)*100));
+        log(`DL ${mb.toFixed(2)} MB — ~${mbpsNow.toFixed(1)} Mbps`);
+        lastUpdate=now;
+      }
+      if (mb >= readMB){ ctrl.abort(); break; }
+    }
+    const totalS = (performance.now()-t0)/1000;
+    return { mb: received/1024/1024, sec: totalS, mbps: (received*8/totalS/1e6) };
+  }catch(e){
+    if (e.name!=='AbortError') log('Download lỗi: '+e.message);
+    const totalS = (performance.now()-startAll)/1000;
+    return { mb: received/1024/1024, sec: totalS, mbps: (received*8/totalS/1e6) };
+  }
+}
+
+/* ============ Upload test (POST stream) ============ */
+async function uploadTest(url, sendMB=8, barSel='#barUp'){
+  // Tạo stream dữ liệu ngẫu nhiên ~sendMB MB
+  const totalBytes = sendMB*1024*1024;
+  const chunkSize = 64*1024;
+  const chunks = Math.ceil(totalBytes/chunkSize);
+  const buf = new Uint8Array(chunkSize);
+  crypto.getRandomValues(buf);
+  let sent = 0;
+
+  const stream = new ReadableStream({
+    start(controller){
+      let i=0;
+      function push(){
+        if (i++>=chunks){ controller.close(); return; }
+        controller.enqueue(buf);
+        sent += buf.length;
+        if (i%8===0){ // cập nhật ~mỗi ~512KB
+          setBar(barSel, Math.min(100, (sent/totalBytes)*100));
+        }
+        queueMicrotask(push);
+      }
+      push();
+    }
+  });
+
+  const t0 = performance.now();
+  try{
+    const res = await fetch(url, { method:'POST', body: stream, mode:'cors' });
+    const sec = (performance.now()-t0)/1000;
+    if (!res.ok) throw new Error('HTTP '+res.status);
+    return { mb: totalBytes/1024/1024, sec, mbps: (totalBytes*8/sec/1e6) };
+  }catch(e){
+    log('Upload lỗi: '+e.message);
+    const sec = (performance.now()-t0)/1000;
+    return { mb: (sent/1024/1024), sec, mbps: (sent*8/sec/1e6) };
+  }
+}
+
+/* ============ Test orchestrator ============ */
+const btnRun = $('#btnRun'), btnStop = $('#btnStop');
+let running=false, abortFlag=false;
+
+async function pickServer(){
+  // Đơn giản: dùng URL đầu tiên. Có thể ping để chọn nhanh nhất.
+  let best = DL_URLS[0], bestPing=Infinity;
+  for (const u of DL_URLS){
+    const p = await ping(u, 2);
+    if (p && p<bestPing){ best=u; bestPing=p; }
+  }
+  $('#serverLabel').textContent = `Server: ${new URL(best).host} • ping≈${isFinite(bestPing)?bestPing.toFixed(0)+' ms':'N/A'}`;
+  return best;
+}
+
+btnRun.addEventListener('click', async ()=>{
+  if (running) return;
+  running=true; abortFlag=false; btnRun.disabled=true; btnStop.disabled=false;
+  setStat('#down','—'); setStat('#up','—'); setStat('#pingDown','—'); setStat('#pingUp','—');
+  setBar('#barDown',0); setBar('#barUp',0); log('Bắt đầu bài test…');
+
+  try{
+    const server = await pickServer();
+    // Ping trước download
+    const p1 = await ping(server, 4);
+    setStat('#pingDown', isFinite(p1)? p1.toFixed(1)+' ms' : 'N/A', isFinite(p1)? '' : 'warn');
+
+    // Download ~20MB
+    const dl = await downloadTest(server, 20, '#barDown');
+    setBar('#barDown',100);
+    setStat('#down', isFinite(dl.mbps)? dl.mbps.toFixed(2)+' Mbps' : 'N/A', isFinite(dl.mbps)? 'ok':'err');
+    log(`Download: ${dl.mb.toFixed(2)} MB trong ${dl.sec.toFixed(2)} s → ${dl.mbps.toFixed(2)} Mbps`);
+
+    if (abortFlag) throw new Error('User stopped');
+
+    // Ping trước upload (đến domain upload)
+    const upPingUrl = new URL(UP_URL).origin;
+    const p2 = await ping(upPingUrl, 4);
+    setStat('#pingUp', isFinite(p2)? p2.toFixed(1)+' ms' : 'N/A', isFinite(p2)? '' : 'warn');
+
+    // Upload ~8MB
+    const up = await uploadTest(UP_URL, 8, '#barUp');
+    setBar('#barUp',100);
+    setStat('#up', isFinite(up.mbps)? up.mbps.toFixed(2)+' Mbps' : 'N/A', isFinite(up.mbps)? 'ok':'err');
+    log(`Upload: ${up.mb.toFixed(2)} MB trong ${up.sec.toFixed(2)} s → ${up.mbps.toFixed(2)} Mbps`);
+  }catch(e){
+    log('Kết thúc với lỗi/huỷ: '+e.message);
+  }finally{
+    running=false; btnRun.disabled=false; btnStop.disabled=true;
+  }
+});
+
+btnStop.addEventListener('click', ()=>{
+  abortFlag=true;
+  log('Đã dừng bởi người dùng.');
+});
+</script>
+</body>
+</html>
