@@ -126,10 +126,14 @@
     document.getElementById('refresh').onclick=loadFeed;
     loadFeed();
   </script>
-  <div id="vn-weather-widget"></div>
-<script
-  src="https://d4m-dev.github.io/widget-wearher/weather-mini.js"
-  data-api-key="617c4ee55ebc9a4b8dac0a1a1b8aa49f"
-></script>
+  <!-- Chỗ muốn hiển thị widget -->
+<vn-weather
+  api-key="617c4ee55ebc9a4b8dac0a1a1b8aa49f"
+  default-city="Hồ Chí Minh"
+  refresh-ms="60000"
+></vn-weather>
+
+<!-- Nhúng file JS (ví dụ dùng GitHub Pages hoặc CDN của bạn) -->
+<script src="https://d4m-dev.github.io/widget-wearher/weather-mini.js"></script>
 </body>
 </html>
